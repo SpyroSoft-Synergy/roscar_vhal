@@ -1,0 +1,81 @@
+/*
+ * Copyright (c) 2023 Spyrosoft Synergy S.A.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "device_generic_car_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    // default_applicable_licenses: ["device_generic_car_license"],
+}
+
+cc_binary {
+    name: "android.hardware.automotive.vehicle@2.0-ros2-service",
+    defaults: ["vhal_v2_0_target_defaults"],
+
+    overrides: ["android.hardware.automotive.vehicle@2.0-default-service"],
+    vintf_fragments: ["android.hardware.automotive.vehicle@2.0-ros2-service.xml"],
+    init_rc: ["android.hardware.automotive.vehicle@2.0-ros2-service.rc"],
+    vendor: true,
+    relative_install_path: "hw",
+    
+    srcs: [
+        "service.cpp",
+    ],
+
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libjsoncpp",
+        "libprotobuf-cpp-lite",
+    ],
+
+    static_libs: [
+        "android.hardware.automotive.vehicle@2.0-manager-lib",
+        "android.hardware.automotive.vehicle@2.0-ros2-impl-lib",
+        "android.hardware.automotive.vehicle@2.0-default-impl-lib",
+    ],
+}
+
+// ROS 2 VehicleHAL implementation
+cc_library_static {
+    name: "android.hardware.automotive.vehicle@2.0-ros2-impl-lib",
+    vendor: true,
+    defaults: ["vhal_v2_0_target_defaults"],
+    cflags: [
+        "-DENABLE_VENDOR_CLUSTER_PROPERTY_FOR_TESTING",
+        "-DENABLE_GET_PROP_CONFIGS_BY_MULTIPLE_REQUESTS",
+    ],
+    srcs: [
+        "impl/Ros2VehicleHal.cpp",
+    ],
+    export_include_dirs: ["impl"],
+    whole_static_libs: [
+        "vendor.spyrosoft.libmicroros",
+        "android.hardware.automotive.vehicle@2.0-manager-lib",
+    ],
+}
