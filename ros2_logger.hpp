@@ -20,16 +20,13 @@
  * SOFTWARE.
  */
 
-#ifndef INTERFACES_ROS2_VHAL_ROS2_LOGGER
-#define INTERFACES_ROS2_VHAL_ROS2_LOGGER
+#pragma once
 
 namespace vendor::spyrosoft::vehicle {
 
 class Logger {
  public:
-  Logger(const char* log_tag);
+  Logger();
 };
 
 }  // vendor::spyrosoft::vehicle
-
-#endif /* INTERFACES_ROS2_VHAL_ROS2_LOGGER */

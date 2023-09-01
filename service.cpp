@@ -19,41 +19,51 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#define LOG_TAG "automotive.vehicle@2.0-service"
+#include "common/logging.hpp"
 
-#include <android/log.h>
-#include <hidl/HidlTransportSupport.h>
-#include <vhal_v2_0/DefaultVehicleConnector.h>
-#include <vhal_v2_0/DefaultVehicleHalServer.h>
-#include <vhal_v2_0/VehicleHalManager.h>
-
-#include <iostream>
+#include <android/binder_manager.h>
+#include <android/binder_process.h>
+#include <DefaultVehicleHal.h>
 
 #include "impl/Ros2VehicleHal.h"
+#include "impl/Ros2VehicleHardware.h"
+#include "ros2_bridge.hpp"
+#include "ros2_logger.hpp"
 
-namespace vhal_v2_0 = android::hardware::automotive::vehicle::V2_0;
-
+using android::hardware::automotive::vehicle::DefaultVehicleHal;
+using vendor::spyrosoft::vehicle::Logger;
+using vendor::spyrosoft::vehicle::ROS2Bridge;
 using vendor::spyrosoft::vehicle::impl::Ros2VehicleHal;
+using vendor::spyrosoft::vehicle::impl::Ros2VehicleHardware;
 
-int main(int /* argc */, char* /* argv */[]) {
-    auto store = std::make_unique<vhal_v2_0::VehiclePropertyStore>();
-    auto connector = std::make_unique<vhal_v2_0::impl::DefaultVehicleConnector>();
-    auto hal = std::make_unique<Ros2VehicleHal>(store.get(), connector.get());
-    auto service = std::make_unique<vhal_v2_0::VehicleHalManager>(hal.get());
-    connector->setValuePool(hal->getValuePool());
+int main(int /* argc */, char* /* argv */[])
+{
+  auto hardware = std::make_unique<Ros2VehicleHardware>();
+  auto vhal = ::ndk::SharedRefBase::make<DefaultVehicleHal>(std::move(hardware));
 
-    android::hardware::configureRpcThreadpool(4, true /* callerWillJoin */);
-
-    ALOGI("Registering as service...");
-    android::status_t status = service->registerAsService();
-
-    if (status != android::OK) {
-        ALOGE("Unable to register vehicle service (%d)", status);
-        return 1;
-    }
-
-    ALOGI("Ready");
-    android::hardware::joinRpcThreadpool();
-
+  ALOGI("Registering as service...");
+  auto err = AServiceManager_addService(vhal->asBinder().get(), "android.hardware.automotive.vehicle.IVehicle/default");
+  if (err != EX_NONE) {
+    ALOGE("failed to register android.hardware.automotive.vehicle service, exception: %d", err);
     return 1;
+  }
+
+  if (!ABinderProcess_setThreadPoolMaxThreadCount(4)) {
+    ALOGE("%s", "failed to set thread pool max thread count");
+    return 1;
+  }
+  ABinderProcess_startThreadPool();
+
+  ALOGI("Creating ROS 2 logger");
+  Logger logger{};
+
+  ALOGI("Creating ROS 2 Bridge");
+  ROS2Bridge bridge{};
+  bridge.run();
+
+  ALOGI("Vehicle Service Ready");
+  ABinderProcess_joinThreadPool();
+
+  ALOGI("Vehicle Service Exiting");
+  return 0;
 }

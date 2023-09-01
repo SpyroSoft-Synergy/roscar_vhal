@@ -23,89 +23,116 @@
 #include "ros2_bridge.hpp"
 
 #include <rcl/error_handling.h>
+#include <rmw_microros/error_handling.h>
+#include <rmw_microros/discovery.h>
 #include <rcl/rcl.h>
 #include <rclc/executor.h>
-#include <rclc/rclc.h>
+#include <rmw_microros/ping.h>
 #include <std_msgs/msg/header.h>
 #include <unistd.h>
 
-#define RCCHECK(fn)                                                                      \
-    {                                                                                    \
-        rcl_ret_t temp_rc = fn;                                                          \
-        if ((temp_rc != RCL_RET_OK)) {                                                   \
-            printf("Failed status on line %d: %d. Aborting.\n", __LINE__, (int)temp_rc); \
-            abort();                                                                     \
-        }                                                                                \
-    }
-#define RCSOFTCHECK(fn)                                                                    \
-    {                                                                                      \
-        rcl_ret_t temp_rc = fn;                                                            \
-        if ((temp_rc != RCL_RET_OK)) {                                                     \
-            printf("Failed status on line %d: %d. Continuing.\n", __LINE__, (int)temp_rc); \
-        }                                                                                  \
-    }
+#include "common/logging.hpp"
+
+#define RCCHECK(fn)                                                               \
+  {                                                                               \
+    rcl_ret_t temp_rc = fn;                                                       \
+    if ((temp_rc != RCL_RET_OK)) {                                                \
+      ALOGE("Failed status on line %d: %d. Aborting.\n", __LINE__, (int)temp_rc); \
+      abort();                                                                    \
+    }                                                                             \
+  }
+#define RCSOFTCHECK(fn)                                                             \
+  {                                                                                 \
+    rcl_ret_t temp_rc = fn;                                                         \
+    if ((temp_rc != RCL_RET_OK)) {                                                  \
+      ALOGE("Failed status on line %d: %d. Continuing.\n", __LINE__, (int)temp_rc); \
+    }                                                                               \
+  }
 
 namespace {
-void ping_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
-    (void)timer;
-    (void)last_call_time;
+void ping_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
+{
+  (void)timer;
+  (void)last_call_time;
 }
 }  // namespace
 
 namespace vendor::spyrosoft::vehicle {
 
-ROS2Bridge::~ROS2Bridge() {
-    // RCCHECK(rcl_publisher_fini(&heartbeat_publisher, &node));
-    // RCCHECK(rcl_node_fini(&node));
+ROS2Bridge::~ROS2Bridge()
+{
+  RCSOFTCHECK(rcl_publisher_fini(&heartbeat_publisher, &node));
+  RCSOFTCHECK(rcl_node_fini(&node));
 }
 
-void ROS2Bridge::run() {
-    mThread = std::thread([this]() {
-        rcl_allocator_t allocator = rcl_get_default_allocator();
-        rclc_support_t support;
+void ROS2Bridge::run()
+{
+  mThread = std::thread([this]() {
+    rclc_support_t support;
+    rcl_allocator_t allocator = rcutils_get_default_allocator();
 
-        // create init_options
-        RCCHECK(rclc_support_init(&support, 0, nullptr, &allocator));
+    ALOGI("ROS2Bridge - rcl_init_options_init");
+    auto rcl_init_options = rcl_get_zero_initialized_init_options();
+    RCCHECK(rcl_init_options_init(&rcl_init_options, allocator));
+    auto* rmw_options = rcl_init_options_get_rmw_init_options(&rcl_init_options);
 
-        // create node
-        rcl_node_t node;
-        RCCHECK(rclc_node_init_default(&node, "vhal_node", "", &support));
+    auto discover_result = RMW_RET_OK;
+    int discovery_retries = 20;
+    do {
+      ALOGI("ROS2Bridge - rmw_uros_discover_agent");
+      discover_result = rmw_uros_discover_agent(rmw_options);
+      discovery_retries--;
+      usleep(1000000);
+    } while (discover_result == RMW_RET_TIMEOUT && discovery_retries > 0);
 
-        // Create a reliable publisher
-        rcl_publisher_t heartbeat_publisher;
-        RCCHECK(rclc_publisher_init_default(&heartbeat_publisher, &node,
-                                            ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Header), "/vhal/heartbeat"));
+    if (RMW_RET_OK != discover_result) {
+      ALOGE("ROS2Bridge - rmw_uros_discover_agent failed: %d", (int)discover_result);
+      auto ping_status = RMW_RET_OK;
+      do {
+        ping_status = rmw_uros_ping_agent(200, 10);
+        ALOGI("ROS2Bridge - ping_agent_status: %d", (int)ping_status);
+        usleep(1000000);
+      } while (ping_status != RMW_RET_OK);
 
-        // Create a 2 seconds heartbeat timer,
-        rcl_timer_t timer;
-        RCCHECK(rclc_timer_init_default(&timer, &support, RCL_MS_TO_NS(2000), ping_timer_callback));
+      ALOGI("ROS2Bridge - rclc_support_init");
+      RCCHECK(rclc_support_init(&support, 0, nullptr, &allocator));
+    }
+    else {
+      auto ping_status = RMW_RET_OK;
+      do {
+        ping_status = rmw_uros_ping_agent_options(200, 10, rmw_options);
+        ALOGI("ROS2Bridge - ping_agent_options_status: %d", (int)ping_status);
+        usleep(1000000);
+      } while (ping_status != RMW_RET_OK);
 
-        // Create executor
-        rclc_executor_t executor;
-        RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
-        RCCHECK(rclc_executor_add_timer(&executor, &timer));
+      ALOGI("ROS2Bridge - rclc_support_init_with_options");
+      RCCHECK(rclc_support_init_with_options(&support, 0, nullptr, &rcl_init_options, &allocator));
+    }
 
-        while (mRunning) {
-            rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
-            usleep(10000);
-        }
-    });
-}
+    // create node
+    rcl_node_t node;
+    ALOGI("ROS2Bridge - initializing node");
+    RCCHECK(rclc_node_init_default(&node, "vhal_node", "", &support));
 
-std::vector<android::hardware::automotive::vehicle::V2_0::VehiclePropConfig> ROS2Bridge::getAllPropertyConfig() const {
-    return {};
-}
+    // Create a reliable publisher
+    rcl_publisher_t heartbeat_publisher;
+    RCCHECK(rclc_publisher_init_default(&heartbeat_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Header),
+                                        "/vhal/heartbeat"));
 
-android::hardware::automotive::vehicle::V2_0::StatusCode ROS2Bridge::setProperty(
-    const android::hardware::automotive::vehicle::V2_0::VehiclePropValue& value, bool updateStatus) {
-    (void)value;
-    (void)updateStatus;
-    return android::hardware::automotive::vehicle::V2_0::StatusCode::OK;
-}
+    // Create a 2 seconds heartbeat timer,
+    rcl_timer_t timer;
+    RCCHECK(rclc_timer_init_default(&timer, &support, RCL_MS_TO_NS(2000), ping_timer_callback));
 
-void ROS2Bridge::onPropertyValue(const android::hardware::automotive::vehicle::V2_0::VehiclePropValue& value, bool updateStatus) {
-    (void)value;
-    (void)updateStatus;
+    // Create executor
+    rclc_executor_t executor;
+    RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
+    RCCHECK(rclc_executor_add_timer(&executor, &timer));
+
+    while (mRunning) {
+      rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
+      usleep(10000);
+    }
+  });
 }
 
 }  // namespace vendor::spyrosoft::vehicle

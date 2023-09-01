@@ -1,12 +1,23 @@
 # vehicle subsystem
 type hal_vehicle_roscar, domain;
+type hal_vehicle_roscar_exec, exec_type, file_type, hal_service_type;
+
+
+init_daemon_domain(hal_vehicle_roscar)
 
 hal_server_domain(hal_vehicle_roscar, hal_vehicle)
 
-# may be started by init
-type hal_vehicle_roscar_exec, exec_type, vendor_file_type, file_type;
-init_daemon_domain(hal_vehicle_roscar)
+# For changing VHAL property via System Property 
+get_prop(hal_vehicle_roscar, debug_prop)
 
-binder_use(hal_vehicle_roscar)
+allow hal_vehicle_roscar hwservicemanager_prop:file { read open getattr map};
+allow hal_vehicle_roscar hwservicemanager:binder { call transfer };
+allow hal_vehicle_roscar hal_vehicle_hwservice:hwservice_manager { find add };
+allow hal_vehicle_roscar hidl_base_hwservice:hwservice_manager add;
+allow hal_vehicle_roscar self:udp_socket { create connect getopt write read };
+allow hal_vehicle_roscar fwmarkd_socket:sock_file write;
+allow hal_vehicle_roscar netd:unix_stream_socket connectto;
 
-carpowerpolicy_callback_domain(hal_vehicle_roscar)
+allow netd hal_vehicle_roscar:fd use;
+allow netd hal_vehicle_roscar:udp_socket { read write getopt setopt };
+

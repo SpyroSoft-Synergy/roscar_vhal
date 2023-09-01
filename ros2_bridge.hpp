@@ -20,14 +20,13 @@
  * SOFTWARE.
  */
 
-#ifndef AUTOMOTIVE_VEHICLE_ROS2_BRIDGE
-#define AUTOMOTIVE_VEHICLE_ROS2_BRIDGE
+#pragma once
+
+#include <rclc/rclc.h>
 
 #include <atomic>
 #include <mutex>
 #include <thread>
-
-#include <vhal_v2_0/VehicleClient.h>
 
 namespace vendor::spyrosoft::vehicle {
 
@@ -35,25 +34,19 @@ namespace vendor::spyrosoft::vehicle {
  * @brief
  *
  */
-class ROS2Bridge : public android::hardware::automotive::vehicle::V2_0::IVehicleClient {
-   public:
-    ROS2Bridge() = default;
-    virtual ~ROS2Bridge();
+class ROS2Bridge {
+ public:
+  ROS2Bridge() = default;
+  virtual ~ROS2Bridge();
 
-    std::vector<android::hardware::automotive::vehicle::V2_0::VehiclePropConfig> getAllPropertyConfig() const override;
+  void run();
 
-    android::hardware::automotive::vehicle::V2_0::StatusCode setProperty(
-        const android::hardware::automotive::vehicle::V2_0::VehiclePropValue& value, bool updateStatus) override;
-    
-    void onPropertyValue(const android::hardware::automotive::vehicle::V2_0::VehiclePropValue& value, bool updateStatus) override;
+ private:
+  std::thread mThread;
+  std::atomic_bool mRunning{true};
 
-   private:
-    void run();
-
-    std::thread mThread;
-    std::atomic_bool mRunning{true};
+  rcl_publisher_t heartbeat_publisher;
+  rcl_node_t node;
 };
 
 }  // namespace vendor::spyrosoft::vehicle
-
-#endif /* AUTOMOTIVE_VEHICLE_ROS2_BRIDGE */
