@@ -20,6 +20,8 @@
  */
 #pragma once
 
+#include "Ros2Bridge.h"
+
 #include <ConcurrentQueue.h>
 #include <IVehicleHardware.h>
 #include <VehiclePropertyStore.h>
@@ -29,7 +31,7 @@
 #include <vector>
 #include <mutex>
 
-namespace vendor::spyrosoft::vehicle::impl {
+namespace vendor::spyrosoft::vehicle {
 
 /**
  * @brief
@@ -72,8 +74,7 @@ class Ros2VehicleHardware : public android::hardware::automotive::vehicle::IVehi
   };
 
  public:
-  Ros2VehicleHardware();
-  explicit Ros2VehicleHardware(std::unique_ptr<android::hardware::automotive::vehicle::VehiclePropValuePool> valuePool);
+  explicit Ros2VehicleHardware(std::unique_ptr<ros2::ROS2Bridge> ros_bridge);
   ~Ros2VehicleHardware() override = default;
 
   // Get all the property configs.
@@ -120,11 +121,14 @@ class Ros2VehicleHardware : public android::hardware::automotive::vehicle::IVehi
       const aidl::android::hardware::automotive::vehicle::SetValueRequest& request);
 
  protected:
+  std::unique_ptr<ros2::ROS2Bridge> mRos2Bridge;
+
   const std::shared_ptr<android::hardware::automotive::vehicle::VehiclePropValuePool> mValuePool;
   const std::unique_ptr<android::hardware::automotive::vehicle::VehiclePropertyStore> mServerSidePropStore;
 
   std::mutex mLock;
   std::unique_ptr<const PropertyChangeCallback> mOnPropertyChangeCallback;
+  std::unique_ptr<const PropertySetErrorCallback> mOnPropertySetErrorCallback;
 
   mutable PendingRequestHandler<IVehicleHardware::GetValuesCallback,
                                 aidl::android::hardware::automotive::vehicle::GetValueRequest>
@@ -134,4 +138,4 @@ class Ros2VehicleHardware : public android::hardware::automotive::vehicle::IVehi
       mPendingSetValueRequests;
 };
 
-}  // namespace vendor::spyrosoft::vehicle::impl
+}  // namespace vendor::spyrosoft::vehicle

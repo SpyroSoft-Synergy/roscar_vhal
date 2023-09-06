@@ -25,23 +25,21 @@
 #include <android/binder_process.h>
 #include <DefaultVehicleHal.h>
 
-#include "impl/Ros2VehicleHal.h"
 #include "impl/Ros2VehicleHardware.h"
-#include "ros2_bridge.hpp"
-#include "ros2_logger.hpp"
+#include "Ros2Logger.h"
+#include "Ros2Bridge.h"
 
 using android::hardware::automotive::vehicle::DefaultVehicleHal;
-using vendor::spyrosoft::vehicle::Logger;
-using vendor::spyrosoft::vehicle::ROS2Bridge;
-using vendor::spyrosoft::vehicle::impl::Ros2VehicleHal;
-using vendor::spyrosoft::vehicle::impl::Ros2VehicleHardware;
+using namespace vendor::spyrosoft::vehicle;
 
 int main(int /* argc */, char* /* argv */[])
 {
-  auto hardware = std::make_unique<Ros2VehicleHardware>();
+  ros2::Logger logger{};
+
+  auto bridge = std::make_unique<ros2::ROS2Bridge>();
+  auto hardware = std::make_unique<Ros2VehicleHardware>(std::move(bridge));
   auto vhal = ::ndk::SharedRefBase::make<DefaultVehicleHal>(std::move(hardware));
 
-  ALOGI("Registering as service...");
   auto err = AServiceManager_addService(vhal->asBinder().get(), "android.hardware.automotive.vehicle.IVehicle/default");
   if (err != EX_NONE) {
     ALOGE("failed to register android.hardware.automotive.vehicle service, exception: %d", err);
@@ -53,13 +51,6 @@ int main(int /* argc */, char* /* argv */[])
     return 1;
   }
   ABinderProcess_startThreadPool();
-
-  ALOGI("Creating ROS 2 logger");
-  Logger logger{};
-
-  ALOGI("Creating ROS 2 Bridge");
-  ROS2Bridge bridge{};
-  bridge.run();
 
   ALOGI("Vehicle Service Ready");
   ABinderProcess_joinThreadPool();

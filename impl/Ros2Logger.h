@@ -22,11 +22,11 @@
 
 #pragma once
 
-namespace vendor::spyrosoft::vehicle {
+namespace vendor::spyrosoft::vehicle::ros2 {
 
 class Logger {
  public:
   Logger();
 };
 
-}  // vendor::spyrosoft::vehicle
+}  // namespace vendor::spyrosoft::vehicle::ros2

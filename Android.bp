@@ -29,28 +29,6 @@ license {
     ],
 }
 
-// ROS2 VehicleHAL implementation
-cc_library_static {
-    name: "android.hardware.automotive.vehicle@V1-ros2-impl",
-    vendor: true,
-    defaults: ["VehicleHalDefaults"],
-    local_include_dirs: ["impl"],
-    export_include_dirs: ["impl"],
-    srcs: [
-        "impl/Ros2VehicleHardware.cpp",
-    ],
-    static_libs: [
-        "VehicleHalUtils",
-    ],
-    header_libs: [
-        "IVehicleHardware",
-        "VehicleHalDefaultConfig",
-    ],
-    shared_libs: [
-        "libbinder_ndk",
-    ],
-}
-
 cc_binary {
     name: "android.hardware.automotive.vehicle@V1-ros2-service",
     overrides: [
@@ -63,15 +41,17 @@ cc_binary {
     init_rc: ["vhal-ros2-service.rc"],
     relative_install_path: "hw",
     
+    local_include_dirs: ["impl"],
+    
     srcs: [
+        "impl/Ros2VehicleHardware.cpp",
+        "impl/Ros2Bridge.cpp",
+        "impl/Ros2Logger.cpp",
         "service.cpp",
-        "ros2_bridge.cpp",
-        "ros2_logger.cpp",
     ],
     static_libs: [
-        "DefaultVehicleHal",
         "vendor.spyrosoft.libmicroros",
-        "android.hardware.automotive.vehicle@V1-ros2-impl",
+        "DefaultVehicleHal",
         "VehicleHalUtils",
     ],
     header_libs: [

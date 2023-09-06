@@ -22,7 +22,7 @@
 
 #include <utils/SystemClock.h>
 
-namespace vendor::spyrosoft::vehicle::impl {
+namespace vendor::spyrosoft::vehicle {
 
 using aidl::android::hardware::automotive::vehicle::GetValueRequest;
 using aidl::android::hardware::automotive::vehicle::GetValueResult;
@@ -80,14 +80,15 @@ void Ros2VehicleHardware::storePropInitialValue(const ConfigDeclaration& config)
   }
 }
 
-Ros2VehicleHardware::Ros2VehicleHardware() : Ros2VehicleHardware(std::make_unique<VehiclePropValuePool>()) {}
-
-Ros2VehicleHardware::Ros2VehicleHardware(std::unique_ptr<VehiclePropValuePool> valuePool)
-    : mValuePool(std::move(valuePool)),
+Ros2VehicleHardware::Ros2VehicleHardware(std::unique_ptr<ros2::ROS2Bridge> ros_bridge)
+    : mRos2Bridge(std::move(ros_bridge)),
+      mValuePool(std::move(std::make_unique<VehiclePropValuePool>())),
       mServerSidePropStore(std::make_unique<VehiclePropertyStore>(mValuePool)),
       mPendingGetValueRequests(this),
       mPendingSetValueRequests(this)
 {
+  mRos2Bridge->start();
+
   for (auto& it : android::hardware::automotive::vehicle::defaultconfig::getDefaultConfigs()) {
     mServerSidePropStore->registerProperty(it.config, nullptr);
     storePropInitialValue(it);
@@ -148,24 +149,24 @@ StatusCode Ros2VehicleHardware::getValues(std::shared_ptr<const GetValuesCallbac
 
 DumpResult Ros2VehicleHardware::dump(const std::vector<std::string>& /*options*/)
 {
-  ALOGI("Ros2VehicleHardware::dump");
+  ALOGW("Ros2VehicleHardware::dump() - not implemented");
   return DumpResult{true, std::string{""}};
 }
 
-StatusCode Ros2VehicleHardware::checkHealth()
-{
-  ALOGI("Ros2VehicleHardware::checkHealth");
-  return StatusCode::OK;
-}
+StatusCode Ros2VehicleHardware::checkHealth() { return StatusCode::OK; }
 
-void Ros2VehicleHardware::registerOnPropertyChangeEvent(std::unique_ptr<const PropertyChangeCallback> /*callback*/)
+void Ros2VehicleHardware::registerOnPropertyChangeEvent(std::unique_ptr<const PropertyChangeCallback> callback)
 {
   ALOGI("Ros2VehicleHardware::registerOnPropertyChangeEvent");
+  std::scoped_lock<std::mutex> lockGuard(mLock);
+  mOnPropertyChangeCallback = std::move(callback);
 }
 
-void Ros2VehicleHardware::registerOnPropertySetErrorEvent(std::unique_ptr<const PropertySetErrorCallback> /*callback*/)
+void Ros2VehicleHardware::registerOnPropertySetErrorEvent(std::unique_ptr<const PropertySetErrorCallback> callback)
 {
   ALOGI("Ros2VehicleHardware::registerOnPropertySetErrorEvent");
+  std::scoped_lock<std::mutex> lockGuard(mLock);
+  mOnPropertySetErrorCallback = std::move(callback);
 }
 
 StatusCode Ros2VehicleHardware::updateSampleRate(int32_t /*propId*/, int32_t /*areaId*/, float /*sampleRate*/)
@@ -197,6 +198,21 @@ SetValueResult Ros2VehicleHardware::handleSetValueRequest(const SetValueRequest&
 
   auto updatedValue = mValuePool->obtain(request.value);
   updatedValue->timestamp = android::elapsedRealtimeNano();
+
+  if (mRos2Bridge->is_connected()) {
+    if (!updatedValue->value.int64Values.empty())
+      (void)mRos2Bridge->setProperty(updatedValue->timestamp, updatedValue->areaId, updatedValue->prop,
+                                     updatedValue->value.int64Values[0]);
+    else if (!updatedValue->value.floatValues.empty())
+      (void)mRos2Bridge->setProperty(updatedValue->timestamp, updatedValue->areaId, updatedValue->prop,
+                                     updatedValue->value.floatValues[0]);
+    else if (!updatedValue->value.int32Values.empty())
+      (void)mRos2Bridge->setProperty(updatedValue->timestamp, updatedValue->areaId, updatedValue->prop,
+                                     updatedValue->value.int32Values[0]);
+    else if (!updatedValue->value.byteValues.empty())
+      (void)mRos2Bridge->setProperty(updatedValue->timestamp, updatedValue->areaId, updatedValue->prop,
+                                     updatedValue->value.byteValues[0]);
+  }
 
   auto writeResult = mServerSidePropStore->writeValue(std::move(updatedValue));
   if (!writeResult.ok()) {
@@ -270,4 +286,4 @@ void Ros2VehicleHardware::PendingRequestHandler<Ros2VehicleHardware::SetValuesCa
   }
 }
 
-}  // namespace vendor::spyrosoft::vehicle::impl
+}  // namespace vendor::spyrosoft::vehicle

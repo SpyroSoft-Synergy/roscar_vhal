@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-#include "ros2_logger.hpp"
+#include "Ros2Logger.h"
 
 #include <rcl/rcl.h>
 #include <rcutils/logging.h>
@@ -111,7 +111,7 @@ void rmw_uros_logcat_handler(const rmw_uros_error_entity_type_t entity, const rm
 
 }  // namespace
 
-namespace vendor::spyrosoft::vehicle {
+namespace vendor::spyrosoft::vehicle::ros2 {
 
 Logger::Logger()
 {
