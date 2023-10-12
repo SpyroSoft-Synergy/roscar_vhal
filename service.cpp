@@ -21,16 +21,35 @@
  */
 #include "common/logging.hpp"
 
+#include <DefaultVehicleHal.h>
+#include <aidl/android/automotive/watchdog/BnCarWatchdogClient.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
-#include <DefaultVehicleHal.h>
 
-#include "impl/Ros2VehicleHardware.h"
-#include "Ros2Logger.h"
 #include "Ros2Bridge.h"
+#include "Ros2Logger.h"
+#include "impl/Ros2VehicleHardware.h"
 
 using android::hardware::automotive::vehicle::DefaultVehicleHal;
 using namespace vendor::spyrosoft::vehicle;
+
+class WatchdogClient : public aidl::android::automotive::watchdog::BnCarWatchdogClient {
+ public:
+  ~WatchdogClient() override = default;
+
+  ndk::ScopedAStatus checkIfAlive(int32_t /*sessionId*/,
+                                  aidl::android::automotive::watchdog::TimeoutLength /*timeout*/) override
+  {
+    ALOGI("checkIfAlive");
+    return ndk::ScopedAStatus::ok();
+  }
+
+  ndk::ScopedAStatus prepareProcessTermination() override
+  {
+    ALOGI("prepareProcessTermination");
+    return ndk::ScopedAStatus::ok();
+  }
+};
 
 int main(int /* argc */, char* /* argv */[])
 {
@@ -46,11 +65,13 @@ int main(int /* argc */, char* /* argv */[])
     return 1;
   }
 
-  if (!ABinderProcess_setThreadPoolMaxThreadCount(4)) {
+  if (!ABinderProcess_setThreadPoolMaxThreadCount(1)) {
     ALOGE("%s", "failed to set thread pool max thread count");
     return 1;
   }
   ABinderProcess_startThreadPool();
+
+  auto watchdogClient = ndk::SharedRefBase::make<WatchdogClient>();
 
   ALOGI("Vehicle Service Ready");
   ABinderProcess_joinThreadPool();

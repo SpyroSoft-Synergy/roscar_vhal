@@ -25,15 +25,12 @@
 #include <rcl/rcl.h>
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
-
-#include <ros2_android_vhal/srv/vhal_set_int64_property.h>
-#include <ros2_android_vhal/srv/vhal_set_int32_property.h>
-#include <ros2_android_vhal/srv/vhal_set_float_property.h>
-#include <ros2_android_vhal/srv/vhal_set_uint8_property.h>
-#include <ros2_android_vhal/srv/vhal_set_string_property.h>
+#include <ros2_android_vhal/msg/vehicle_property.h>
+#include <ros2_android_vhal/srv/set_vehicle_property.h>
 
 #include <atomic>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <variant>
 
@@ -46,29 +43,18 @@ enum class AgentConnectionState { CONNECTED, DISCONNECTED };
  *
  */
 class ROS2Bridge {
+  public:
+  using PropertyValue_t = std::variant<int64_t, int32_t, uint8_t, float, std::string>;
+
  public:
   ROS2Bridge();
   virtual ~ROS2Bridge();
 
-  void start();
+  void start(std::chrono::seconds timeout = std::chrono::seconds(0));
   void stop() { m_running = false; }
-  bool is_connected() const { return m_running; }
+  bool is_connected() const { return (m_AgentState == AgentConnectionState::CONNECTED); }
 
-  template <typename ValueT>
-  ValueT setProperty(int64_t timestamp, int32_t areaId, int32_t prop, ValueT value)
-  {
-    ros2_android_vhal__srv__VhalSetInt64Property_Request req;
-    ros2_android_vhal__srv__VhalSetInt64Property_Request__init(&req);
-    req.timestamp = timestamp;
-    req.area_id = areaId;
-    req.prop = prop;
-    req.new_value = value;
-
-    int64_t seq;
-    (void)rcl_send_request(&m_setInt64PropertyClient, &req, &seq);
-
-    return value;
-  }
+  bool setProperty(int64_t timestamp, int32_t areaId, int32_t propId, PropertyValue_t value);
 
  protected:
   void createEntities();
@@ -87,17 +73,8 @@ class ROS2Bridge {
   rcl_node_t m_node;
   rclc_executor_t m_executor;
 
-  rcl_client_t m_setInt64PropertyClient;
-  rcl_client_t m_setInt32PropertyClient;
-  rcl_client_t m_setUint8PropertyClient;
-  rcl_client_t m_setFloatPropertyClient;
-  rcl_client_t m_setStringPropertyClient;
-
-  ros2_android_vhal__srv__VhalSetInt64Property_Response m_setInt64Resp;
-  ros2_android_vhal__srv__VhalSetInt32Property_Response m_setInt32Resp;
-  ros2_android_vhal__srv__VhalSetFloatProperty_Response m_setFloatResp;
-  ros2_android_vhal__srv__VhalSetUint8Property_Response m_setUint8Resp;
-  ros2_android_vhal__srv__VhalSetStringProperty_Response m_setStringResp;
+  rcl_client_t m_vehiclePropertyClient;
+  std::mutex m_clientMutex;
 };
 
 }  // namespace vendor::spyrosoft::vehicle::ros2

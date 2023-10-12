@@ -22,11 +22,14 @@
 
 #include "Ros2Bridge.h"
 
+#include <aidl/android/hardware/automotive/vehicle/VehicleProperty.h>
 #include <rcl/error_handling.h>
-#include <rmw_microros/error_handling.h>
 #include <rmw_microros/discovery.h>
+#include <rmw_microros/error_handling.h>
 #include <rmw_microros/ping.h>
 #include <rmw_microros/rmw_microros.h>
+#include <rosidl_runtime_c/primitives_sequence_functions.h>
+#include <rosidl_runtime_c/string_functions.h>
 #include <unistd.h>
 
 #include "common/logging.hpp"
@@ -47,63 +50,21 @@
     }                                                                               \
   }
 
-namespace {
-void setInt64PropertyClient_callback(const void* msg)
-{
-  if (msg != nullptr) {
-    auto* msgin = static_cast<const ros2_android_vhal__srv__VhalSetInt64Property_Response*>(msg);
-    ALOGI("ROS2Bridge - setInt64PropertyClient_callback: value == %ld", msgin->actual_value);
-  }
-  else {
-    ALOGE("ROS2Bridge - setInt64PropertyClient_callback error msg == nullptr");
-  }
-}
+// helper types for the visitor
+template <class... Ts>
+struct overload : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts>
+overload(Ts...) -> overload<Ts...>;
 
-void setInt32PropertyClient_callback(const void* msg)
-{
-  if (msg != nullptr) {
-    auto* msgin = static_cast<const ros2_android_vhal__srv__VhalSetInt32Property_Response*>(msg);
-    ALOGI("ROS2Bridge - setInt32PropertyClient_callback: value == %d", msgin->actual_value);
-  }
-  else {
-    ALOGE("ROS2Bridge - setInt32PropertyClient_callback error msg == nullptr");
-  }
-}
+static ros2_android_vhal__srv__SetVehicleProperty_Response set_vehicle_property_resp;
 
-void setFloatPropertyClient_callback(const void* msg)
+void set_vehicle_property_callback(const void *msg)
 {
-  if (msg != nullptr) {
-    auto* msgin = static_cast<const ros2_android_vhal__srv__VhalSetFloatProperty_Response*>(msg);
-    ALOGI("ROS2Bridge - setIntFloatPropertyClient_callback: value == %f", msgin->actual_value);
-  }
-  else {
-    ALOGE("ROS2Bridge - setIntFloatPropertyClient_callback error msg == nullptr");
-  }
+  auto *resp = static_cast<const ros2_android_vhal__srv__SetVehicleProperty_Response *>(msg);
+  ALOGD("set_vehicle_property_callback result: %d", resp->result);
 }
-
-void setUint8PropertyClient_callback(const void* msg)
-{
-  if (msg != nullptr) {
-    auto* msgin = static_cast<const ros2_android_vhal__srv__VhalSetUint8Property_Response*>(msg);
-    ALOGI("ROS2Bridge - setUint8PropertyClient_callback: value == %u", msgin->actual_value);
-  }
-  else {
-    ALOGE("ROS2Bridge - setUint8PropertyClient_callback error msg == nullptr");
-  }
-}
-
-void setStringPropertyClient_callback(const void* msg)
-{
-  if (msg != nullptr) {
-    auto* msgin = static_cast<const ros2_android_vhal__srv__VhalSetStringProperty_Response*>(msg);
-    ALOGI("ROS2Bridge - setStringPropertyClient_callback: value == %s", msgin->actual_value.data);
-  }
-  else {
-    ALOGE("ROS2Bridge - setStringPropertyClient_callback error msg == nullptr");
-  }
-}
-
-}  // namespace
 
 namespace vendor::spyrosoft::vehicle::ros2 {
 
@@ -111,11 +72,8 @@ ROS2Bridge::ROS2Bridge()
     : m_init_options(rcl_get_zero_initialized_init_options()),
       m_allocator(rcutils_get_default_allocator()),
       m_node(rcl_get_zero_initialized_node()),
-      m_setInt64PropertyClient(rcl_get_zero_initialized_client()),
-      m_setInt32PropertyClient(rcl_get_zero_initialized_client()),
-      m_setUint8PropertyClient(rcl_get_zero_initialized_client()),
-      m_setFloatPropertyClient(rcl_get_zero_initialized_client()),
-      m_setStringPropertyClient(rcl_get_zero_initialized_client())
+      m_executor(rclc_executor_get_zero_initialized_executor()),
+      m_vehiclePropertyClient(rcl_get_zero_initialized_client())
 {
   RCCHECK(rcl_init_options_init(&m_init_options, m_allocator));
   ALOGI("ROS 2 Bridge created");
@@ -141,34 +99,14 @@ void ROS2Bridge::createEntities()
 
   RCCHECK(rclc_node_init_default(&m_node, "android_vhal_node", "", &m_support));
 
-  RCCHECK(rclc_client_init_default(&m_setInt64PropertyClient, &m_node,
-                                   ROSIDL_GET_SRV_TYPE_SUPPORT(ros2_android_vhal, srv, VhalSetInt64Property),
-                                   "/VhalSetInt64Property"));
-  RCCHECK(rclc_client_init_default(&m_setInt32PropertyClient, &m_node,
-                                   ROSIDL_GET_SRV_TYPE_SUPPORT(ros2_android_vhal, srv, VhalSetInt32Property),
-                                   "/VhalSetInt32Property"));
-  RCCHECK(rclc_client_init_default(&m_setFloatPropertyClient, &m_node,
-                                   ROSIDL_GET_SRV_TYPE_SUPPORT(ros2_android_vhal, srv, VhalSetFloatProperty),
-                                   "/VhalSetFloatProperty"));
-  RCCHECK(rclc_client_init_default(&m_setUint8PropertyClient, &m_node,
-                                   ROSIDL_GET_SRV_TYPE_SUPPORT(ros2_android_vhal, srv, VhalSetUint8Property),
-                                   "/VhalSetUint8Property"));
-  RCCHECK(rclc_client_init_default(&m_setStringPropertyClient, &m_node,
-                                   ROSIDL_GET_SRV_TYPE_SUPPORT(ros2_android_vhal, srv, VhalSetStringProperty),
-                                   "/VhalSetStringProperty"));
+  RCCHECK(rclc_client_init_default(&m_vehiclePropertyClient, &m_node,
+                                   ROSIDL_GET_SRV_TYPE_SUPPORT(ros2_android_vhal, srv, SetVehicleProperty),
+                                   "/set_vehicle_property"));
 
   RCCHECK(rclc_executor_init(&m_executor, &m_support.context, 1, &m_allocator));
 
-  RCCHECK(rclc_executor_add_client(&m_executor, &m_setInt64PropertyClient, &m_setInt64Resp,
-                                   setInt64PropertyClient_callback));
-  RCCHECK(rclc_executor_add_client(&m_executor, &m_setInt32PropertyClient, &m_setInt32Resp,
-                                   setInt32PropertyClient_callback));
-  RCCHECK(rclc_executor_add_client(&m_executor, &m_setFloatPropertyClient, &m_setFloatResp,
-                                   setFloatPropertyClient_callback));
-  RCCHECK(rclc_executor_add_client(&m_executor, &m_setUint8PropertyClient, &m_setUint8Resp,
-                                   setUint8PropertyClient_callback));
-  RCCHECK(rclc_executor_add_client(&m_executor, &m_setStringPropertyClient, &m_setStringResp,
-                                   setStringPropertyClient_callback));
+  RCCHECK(rclc_executor_add_client(&m_executor, &m_vehiclePropertyClient, &set_vehicle_property_resp,
+                                   set_vehicle_property_callback));
 }
 
 void ROS2Bridge::destroyEntities()
@@ -176,11 +114,7 @@ void ROS2Bridge::destroyEntities()
   ALOGI("ROS2Bridge - destroying node entities");
 
   RCSOFTCHECK(rclc_executor_fini(&m_executor));
-  RCSOFTCHECK(rcl_client_fini(&m_setInt64PropertyClient, &m_node));
-  RCSOFTCHECK(rcl_client_fini(&m_setInt32PropertyClient, &m_node));
-  RCSOFTCHECK(rcl_client_fini(&m_setFloatPropertyClient, &m_node));
-  RCSOFTCHECK(rcl_client_fini(&m_setUint8PropertyClient, &m_node));
-  RCSOFTCHECK(rcl_client_fini(&m_setStringPropertyClient, &m_node));
+  RCSOFTCHECK(rcl_client_fini(&m_vehiclePropertyClient, &m_node));
   RCSOFTCHECK(rcl_node_fini(&m_node));
   RCSOFTCHECK(rclc_support_fini(&m_support));
 }
@@ -188,47 +122,108 @@ void ROS2Bridge::destroyEntities()
 bool ROS2Bridge::pingAgent()
 {
   if (m_rmw_options != nullptr) {
-    ALOGD("ROS2Bridge - ping discovered agent");
-    return (rmw_uros_ping_agent_options(200, 5, m_rmw_options) == RMW_RET_OK);
+    return (rmw_uros_ping_agent_options(250, 5, m_rmw_options) == RMW_RET_OK);
   }
   else {
-    ALOGD("ROS2Bridge - ping default agent");
-    return (rmw_uros_ping_agent(200, 5) == RMW_RET_OK);
+    return (rmw_uros_ping_agent(250, 5) == RMW_RET_OK);
   }
 }
 
-void ROS2Bridge::start()
+bool ROS2Bridge::setProperty(int64_t timestamp, int32_t areaId, int32_t propId, PropertyValue_t value)
 {
-  m_thread = std::thread([this]() {
-    switch (m_AgentState) {
-      case AgentConnectionState::DISCONNECTED:
-        m_rmw_options = rcl_init_options_get_rmw_init_options(&m_init_options);
-        ALOGD("ROS2Bridge - discovery agent");
-        if (rmw_uros_discover_agent(m_rmw_options) == RMW_RET_OK) {
-          ALOGD("ROS2Bridge - agent discovered");
-        }
-        else {
-          ALOGD("ROS2Bridge - agent discovery failed");
-          m_rmw_options = nullptr;
-        }
+  if (propId != 0x15400500) {
+    return true;
+  }
 
-        if (pingAgent()) {
-          ALOGD("ROS2Bridge - agent found");
-          createEntities();
-          m_AgentState = AgentConnectionState::CONNECTED;
-        }
-        break;
+  std::lock_guard<std::mutex> lock(m_clientMutex);
 
-      case AgentConnectionState::CONNECTED:
-        if (pingAgent()) {
-          rclc_executor_spin_some(&m_executor, RCL_MS_TO_NS(100));
-        }
-        else {
-          destroyEntities();
-          m_AgentState = AgentConnectionState::DISCONNECTED;
-        }
-        break;
+  ros2_android_vhal__srv__SetVehicleProperty_Request req;
+  ros2_android_vhal__srv__SetVehicleProperty_Request__init(&req);
+  req.prop.timestamp = timestamp;
+  req.prop.area_id = areaId;
+  req.prop.prop_id = propId;
+
+  // clang-format off
+  std::visit(overload{
+    [&](int64_t) {
+      rosidl_runtime_c__int64__Sequence__init(&req.prop.int64_values, 1UL);
+      req.prop.int64_values.data[0] = std::get<int64_t>(value);
+    },
+    [&](int32_t) { 
+      rosidl_runtime_c__int32__Sequence__init(&req.prop.int32_values, 1UL);
+      req.prop.int32_values.data[0] = std::get<int32_t>(value);
+    },
+    [&](uint8_t) { 
+      rosidl_runtime_c__uint8__Sequence__init(&req.prop.uint8_values, 1UL);
+      req.prop.uint8_values.data[0] = std::get<uint8_t>(value);
+    },
+    [&](float) { 
+      rosidl_runtime_c__float__Sequence__init(&req.prop.float_values, 1UL);
+      req.prop.float_values.data[0] = std::get<float>(value);
+    },
+    [&](std::string&) { 
+      rosidl_runtime_c__String__Sequence__init(&req.prop.string_values, 1UL);
+      rosidl_runtime_c__String__assignn(&req.prop.string_values.data[0], std::get<std::string>(value).c_str(), std::get<std::string>(value).size());
+    }},
+    value);
+  // clang-format on
+
+  int64_t sequence_number;
+  const auto send_result = rcl_send_request(&m_vehiclePropertyClient, &req, &sequence_number);
+  ros2_android_vhal__srv__SetVehicleProperty_Request__fini(&req);
+
+  if (send_result != RMW_RET_OK) {
+    ALOGE("rcl_send_request setProperty(%d) error", propId);
+    return false;
+  }
+  else {
+    ALOGD("rcl_send_request setProperty(%d) sent", propId);
+  }
+
+  return true;
+}
+
+void ROS2Bridge::start(std::chrono::seconds timeout)
+{
+  m_thread = std::thread([this, timeout]() {
+    std::this_thread::sleep_for(timeout);
+
+    while (m_running) {
+      switch (m_AgentState) {
+        case AgentConnectionState::DISCONNECTED:
+          m_rmw_options = rcl_init_options_get_rmw_init_options(&m_init_options);
+          ALOGD("ROS2Bridge - discovery agent");
+          if (rmw_uros_discover_agent(m_rmw_options) == RMW_RET_OK) {
+            ALOGD("ROS2Bridge - agent discovered");
+          }
+          else {
+            m_rmw_options = nullptr;
+          }
+
+          if (pingAgent()) {
+            ALOGD("ROS2Bridge - agent found");
+            createEntities();
+            m_AgentState = AgentConnectionState::CONNECTED;
+          }
+          else {
+            ALOGD("ROS2Bridge - agent not found");
+          }
+          break;
+        case AgentConnectionState::CONNECTED:
+          if (!pingAgent()) {
+            ALOGD("ROS2Bridge - agent lost");
+            destroyEntities();
+            m_AgentState = AgentConnectionState::DISCONNECTED;
+          }
+          else {
+            RCSOFTCHECK(rclc_executor_spin_some(&m_executor, RCL_MS_TO_NS(100)));
+          }
+          break;
+      }
     }
+
+    destroyEntities();
+    ALOGD("ROS2Bridge - Thread stopped");
   });
 }
 

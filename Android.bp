@@ -31,10 +31,6 @@ license {
 
 cc_binary {
     name: "android.hardware.automotive.vehicle@V1-ros2-service",
-    overrides: [
-        "android.hardware.automotive.vehicle@V1-emulator-service",
-        "android.hardware.automotive.vehicle@V1-default-service"
-    ],
     vendor: true,
     defaults: ["VehicleHalDefaults"],
     vintf_fragments: ["vhal-ros2-service.xml"],
@@ -60,5 +56,6 @@ cc_binary {
     ],
     shared_libs: [
         "libbinder_ndk",
+        "android.automotive.watchdog-V2-ndk",
     ],
 }

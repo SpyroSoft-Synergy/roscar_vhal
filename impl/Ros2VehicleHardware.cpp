@@ -22,6 +22,8 @@
 
 #include <utils/SystemClock.h>
 
+using namespace std::chrono_literals;
+
 namespace vendor::spyrosoft::vehicle {
 
 using aidl::android::hardware::automotive::vehicle::GetValueRequest;
@@ -87,8 +89,7 @@ Ros2VehicleHardware::Ros2VehicleHardware(std::unique_ptr<ros2::ROS2Bridge> ros_b
       mPendingGetValueRequests(this),
       mPendingSetValueRequests(this)
 {
-  mRos2Bridge->start();
-
+  mRos2Bridge->start(45s);
   for (auto& it : android::hardware::automotive::vehicle::defaultconfig::getDefaultConfigs()) {
     mServerSidePropStore->registerProperty(it.config, nullptr);
     storePropInitialValue(it);
@@ -119,8 +120,6 @@ StatusCode Ros2VehicleHardware::setValues(std::shared_ptr<const SetValuesCallbac
                                           const std::vector<SetValueRequest>& requests)
 {
   for (auto& request : requests) {
-    ALOGD("Set value for property ID: %d", request.value.prop);
-
     // In a real VHAL implementation, you could either send the setValue request to vehicle bus
     // here in the binder thread, or you could send the request in setValue which runs in
     // the handler thread. If you decide to send the setValue request here, you should not
@@ -135,8 +134,6 @@ StatusCode Ros2VehicleHardware::getValues(std::shared_ptr<const GetValuesCallbac
                                           const std::vector<GetValueRequest>& requests) const
 {
   for (auto& request : requests) {
-    ALOGD("getValues(%d)", request.prop.prop);
-
     // In a real VHAL implementation, you could either send the getValue request to vehicle bus
     // here in the binder thread, or you could send the request in getValue which runs in
     // the handler thread. If you decide to send the getValue request here, you should not
@@ -199,6 +196,10 @@ SetValueResult Ros2VehicleHardware::handleSetValueRequest(const SetValueRequest&
   auto updatedValue = mValuePool->obtain(request.value);
   updatedValue->timestamp = android::elapsedRealtimeNano();
 
+  const auto property = aidl::android::hardware::automotive::vehicle::VehicleProperty(updatedValue->prop);
+  ALOGI("Ros2VehicleHardware::handleSetValueRequest: %s",
+        aidl::android::hardware::automotive::vehicle::toString(property).c_str());
+
   if (mRos2Bridge->is_connected()) {
     if (!updatedValue->value.int64Values.empty())
       (void)mRos2Bridge->setProperty(updatedValue->timestamp, updatedValue->areaId, updatedValue->prop,
@@ -212,6 +213,9 @@ SetValueResult Ros2VehicleHardware::handleSetValueRequest(const SetValueRequest&
     else if (!updatedValue->value.byteValues.empty())
       (void)mRos2Bridge->setProperty(updatedValue->timestamp, updatedValue->areaId, updatedValue->prop,
                                      updatedValue->value.byteValues[0]);
+    else if (!updatedValue->value.stringValue.empty())
+      (void)mRos2Bridge->setProperty(updatedValue->timestamp, updatedValue->areaId, updatedValue->prop,
+                                     updatedValue->value.stringValue);
   }
 
   auto writeResult = mServerSidePropStore->writeValue(std::move(updatedValue));

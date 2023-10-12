@@ -21,3 +21,10 @@ allow hal_vehicle_roscar netd:unix_stream_socket connectto;
 allow netd hal_vehicle_roscar:fd use;
 allow netd hal_vehicle_roscar:udp_socket { read write getopt setopt };
 
+#============= vendor_init ==============
+allow vendor_init net_dns_prop:file read;
+
+# Configuration for register VHAL to car watchdog
+carwatchdog_client_domain(hal_vehicle_roscar)
+binder_use(hal_vehicle_roscar)
+

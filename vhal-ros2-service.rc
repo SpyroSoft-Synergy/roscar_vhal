@@ -2,3 +2,4 @@ service ros2.vehicle-hal-1.0 /vendor/bin/hw/android.hardware.automotive.vehicle@
     class early_hal
     user vehicle_network
     group system inet
+    priority 10
